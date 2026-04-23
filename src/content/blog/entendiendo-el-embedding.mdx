@@ -1,0 +1,35 @@
+---
+title: 'Entendiendo el embedding'
+description: 'Qué son los embeddings, por qué importan y cómo visualizarlos.'
+pubDate: 'Apr 23 2026'
+---
+
+Un **embedding** es una representación numérica —un vector— de algo más complejo: una palabra, una frase, una imagen, un audio. Lo que era texto o píxeles se convierte en una lista de números. Nada nuevo en sí; lo interesante es que esa lista se elige de forma que conserve el **significado**.
+
+## Por qué importan
+
+La clave es la **similitud**. Dos cosas con significado parecido terminan con vectores cercanos en el espacio. "Perro" y "gato" quedan cerca; "perro" y "democracia" quedan lejos. Esta propiedad es la base de:
+
+- **Búsqueda semántica**: encontrar resultados que *significan* lo mismo, aunque no compartan las mismas palabras.
+- **Recomendadores**: sugerir ítems "parecidos" a uno que te gustó.
+- **LLMs**: los modelos de lenguaje operan internamente sobre embeddings, no sobre texto plano.
+
+## Visualización
+
+{/*
+  Para reemplazar el embed: en Figma → Share → Get embed code.
+  Copia el valor de `src=...` y pégalo abajo.
+  El archivo Figma debe tener "Anyone with the link can view".
+*/}
+
+<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; margin: 2em 0; border-radius: 12px;">
+  <iframe
+    style="position:absolute; top:0; left:0; width:100%; height:100%; border:1px solid #eee;"
+    src="https://embed.figma.com/file/REEMPLAZA_ESTO/Entendiendo-el-embedding"
+    allowfullscreen
+    loading="lazy"
+    title="Diagrama de embeddings en Figma"
+  ></iframe>
+</div>
+
+El diagrama proyecta los vectores a 2D para que se puedan leer a simple vista. En la práctica los embeddings viven en cientos o miles de dimensiones —384, 768, 1536 son comunes—, pero la intuición es la misma: **posiciones cercanas, significados cercanos**.
