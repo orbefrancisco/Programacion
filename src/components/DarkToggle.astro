@@ -1,0 +1,64 @@
+---
+// Theme toggle. Default is dark; `.light` class on <html> flips to light.
+// Persistence via localStorage('theme') = 'dark' | 'light'.
+---
+
+<button
+	id="theme-toggle"
+	class="theme-toggle"
+	type="button"
+	aria-label="Cambiar tema claro/oscuro"
+	title="Cambiar tema"
+>
+	<svg class="icon-dark" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+		<path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 7.5 7.5 0 0 1-9-9z" />
+	</svg>
+	<svg class="icon-light" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+		<circle cx="12" cy="12" r="4" fill="currentColor" />
+		<g stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+			<line x1="12" y1="2" x2="12" y2="5" />
+			<line x1="12" y1="19" x2="12" y2="22" />
+			<line x1="2" y1="12" x2="5" y2="12" />
+			<line x1="19" y1="12" x2="22" y2="12" />
+			<line x1="4.5" y1="4.5" x2="6.5" y2="6.5" />
+			<line x1="17.5" y1="17.5" x2="19.5" y2="19.5" />
+			<line x1="4.5" y1="19.5" x2="6.5" y2="17.5" />
+			<line x1="17.5" y1="6.5" x2="19.5" y2="4.5" />
+		</g>
+	</svg>
+</button>
+
+<style>
+	.theme-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		color: var(--muted);
+		background: transparent;
+		transition: color 120ms ease, border-color 120ms ease;
+	}
+	.theme-toggle:hover {
+		color: var(--fg);
+		border-color: var(--border-strong);
+	}
+	.icon-light { display: none; }
+	:global(html.light) .theme-toggle .icon-dark { display: none; }
+	:global(html.light) .theme-toggle .icon-light { display: block; }
+</style>
+
+<script is:inline>
+	(function () {
+		const btn = document.getElementById('theme-toggle');
+		if (!btn) return;
+		btn.addEventListener('click', () => {
+			const isLight = document.documentElement.classList.toggle('light');
+			try {
+				localStorage.setItem('theme', isLight ? 'light' : 'dark');
+			} catch {}
+		});
+	})();
+</script>

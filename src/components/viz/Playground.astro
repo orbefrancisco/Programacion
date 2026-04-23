@@ -1,0 +1,222 @@
+---
+import VizControls from './VizControls.astro';
+import VizFrame from './VizFrame.astro';
+---
+
+<VizFrame
+	title="Playground"
+	number="Viz 07"
+	caption="Vocabulario de ~170 palabras con embeddings sintéticos de 16d. Escribe una palabra para ver sus vecinos, o una expresión A − B + C para aritmética vectorial."
+>
+	<div class="wrap" data-viz="viz-play">
+		<div class="pg-input">
+			<input
+				type="text"
+				data-q
+				placeholder="king − man + woman"
+				aria-label="Palabra o expresión A − B + C"
+				autocomplete="off"
+				spellcheck="false"
+			/>
+			<button class="btn" type="button" data-go>Buscar</button>
+		</div>
+		<div class="pg-error" data-err></div>
+		<ol class="pg-results" data-results></ol>
+		<div class="pg-hints">
+			<span>Prueba:</span>
+			<button class="chip" data-ex="king">king</button>
+			<button class="chip" data-ex="king - man + woman">king − man + woman</button>
+			<button class="chip" data-ex="paris - france + italy">(no existe, error ejemplo)</button>
+			<button class="chip" data-ex="father - man + woman">father − man + woman</button>
+			<button class="chip" data-ex="puppy - dog + cat">puppy − dog + cat</button>
+		</div>
+	</div>
+
+	<style>
+		.wrap { width: 100%; }
+		.pg-input {
+			display: flex;
+			gap: 0.6em;
+			margin-bottom: 0.6em;
+		}
+		.pg-input input {
+			flex: 1;
+			padding: 0.7em 0.9em;
+			background: var(--bg);
+			color: var(--fg);
+			border: 1px solid var(--border-strong);
+			border-radius: 5px;
+			font-family: var(--font-mono);
+			font-size: 0.95rem;
+		}
+		.pg-input input:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+		.pg-input .btn {
+			padding: 0.6em 1.2em;
+			font-family: var(--font-sans);
+			font-size: 0.9rem;
+			color: var(--fg);
+			background: var(--bg-elev);
+			border: 1px solid var(--border-strong);
+			border-radius: 5px;
+		}
+		.pg-input .btn:hover { border-color: var(--accent); color: var(--accent); }
+		.pg-error {
+			color: color-mix(in oklab, var(--accent) 80%, var(--fg));
+			font-family: var(--font-sans);
+			font-size: 0.85rem;
+			min-height: 1.2em;
+		}
+		.pg-results {
+			list-style: none;
+			padding: 0;
+			margin: 1em 0 0;
+		}
+		.pg-results li {
+			display: flex;
+			justify-content: space-between;
+			align-items: baseline;
+			padding: 0.4em 0;
+			border-bottom: 1px solid var(--border);
+			font-family: var(--font-sans);
+		}
+		.pg-results .word { color: var(--fg); font-size: 0.98rem; }
+		.pg-results .score {
+			color: var(--muted);
+			font-family: var(--font-mono);
+			font-size: 0.82rem;
+		}
+		.pg-results .bar {
+			height: 2px;
+			background: var(--accent);
+			display: inline-block;
+			margin-left: 0.5em;
+			vertical-align: middle;
+			opacity: 0.75;
+		}
+		.pg-hints {
+			margin-top: 1.5em;
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 0.5em;
+			font-family: var(--font-sans);
+			font-size: 0.82rem;
+			color: var(--muted);
+		}
+		.chip {
+			font: inherit;
+			color: var(--muted);
+			background: transparent;
+			border: 1px solid var(--border);
+			padding: 0.25em 0.7em;
+			border-radius: 999px;
+			cursor: pointer;
+		}
+		.chip:hover { color: var(--accent); border-color: var(--accent); }
+	</style>
+
+	<script>
+		import { PLAYGROUND_VOCAB, WORD_INDEX, PLAYGROUND_DIM } from '../../data/playground-vocab';
+		import { cosineSim } from '../../lib/viz/math';
+		import { kNearestCosine } from '../../lib/viz/knn';
+
+		const root = document.querySelector<HTMLDivElement>('[data-viz="viz-play"]');
+		if (!root) throw new Error();
+		const input = root.querySelector<HTMLInputElement>('[data-q]')!;
+		const btn = root.querySelector<HTMLButtonElement>('[data-go]')!;
+		const errEl = root.querySelector<HTMLDivElement>('[data-err]')!;
+		const resultsEl = root.querySelector<HTMLOListElement>('[data-results]')!;
+
+		interface Term { sign: 1 | -1; word: string; }
+
+		function parse(expr: string): Term[] {
+			const normalized = expr
+				.toLowerCase()
+				.replace(/−/g, '-')
+				.replace(/[^a-z+\-\s]/g, ' ')
+				.trim();
+			if (!normalized) return [];
+			const tokens = normalized.split(/\s+/);
+			const terms: Term[] = [];
+			let sign: 1 | -1 = 1;
+			for (const tk of tokens) {
+				if (tk === '+') sign = 1;
+				else if (tk === '-') sign = -1;
+				else if (tk.startsWith('+')) { sign = 1; if (tk.length > 1) terms.push({ sign, word: tk.slice(1) }); sign = 1; }
+				else if (tk.startsWith('-')) { sign = -1; if (tk.length > 1) { terms.push({ sign, word: tk.slice(1) }); sign = 1; } }
+				else { terms.push({ sign, word: tk }); sign = 1; }
+			}
+			return terms;
+		}
+
+		function compute(terms: Term[]): { vec: number[]; exclude: Set<string> } | { error: string } {
+			const vec = new Array<number>(PLAYGROUND_DIM).fill(0);
+			const exclude = new Set<string>();
+			for (const t of terms) {
+				const idx = WORD_INDEX.get(t.word);
+				if (idx === undefined) {
+					return { error: `palabra fuera de vocabulario: "${t.word}"` };
+				}
+				const v = PLAYGROUND_VOCAB[idx].vec;
+				for (let i = 0; i < PLAYGROUND_DIM; i++) vec[i] += t.sign * v[i];
+				exclude.add(t.word);
+			}
+			return { vec, exclude };
+		}
+
+		function renderResults(vec: number[], exclude: Set<string>) {
+			const vectors = PLAYGROUND_VOCAB.map((w) => w.vec);
+			const scored: Array<[number, number]> = [];
+			for (let i = 0; i < vectors.length; i++) {
+				if (exclude.has(PLAYGROUND_VOCAB[i].word)) continue;
+				scored.push([i, cosineSim(vec, vectors[i])]);
+			}
+			scored.sort((a, b) => b[1] - a[1]);
+			const top = scored.slice(0, 8);
+			resultsEl.innerHTML = '';
+			for (const [i, s] of top) {
+				const li = document.createElement('li');
+				const wEl = document.createElement('span');
+				wEl.className = 'word';
+				wEl.textContent = PLAYGROUND_VOCAB[i].word;
+				const sEl = document.createElement('span');
+				sEl.className = 'score';
+				const bar = document.createElement('span');
+				bar.className = 'bar';
+				bar.style.width = `${Math.max(0, s) * 90}px`;
+				sEl.appendChild(document.createTextNode(s.toFixed(3)));
+				sEl.appendChild(bar);
+				li.appendChild(wEl);
+				li.appendChild(sEl);
+				resultsEl.appendChild(li);
+			}
+		}
+
+		function run() {
+			errEl.textContent = '';
+			resultsEl.innerHTML = '';
+			const terms = parse(input.value);
+			if (terms.length === 0) return;
+			const res = compute(terms);
+			if ('error' in res) {
+				errEl.textContent = res.error;
+				return;
+			}
+			renderResults(res.vec, res.exclude);
+		}
+
+		btn.addEventListener('click', run);
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') { e.preventDefault(); run(); }
+		});
+		for (const chip of root.querySelectorAll<HTMLButtonElement>('.chip')) {
+			chip.addEventListener('click', () => {
+				input.value = chip.dataset.ex ?? '';
+				run();
+			});
+		}
+		// seed
+		input.value = 'king - man + woman';
+		run();
+	</script>
+</VizFrame>

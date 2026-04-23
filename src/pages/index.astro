@@ -13,10 +13,27 @@ import { SITE_DESCRIPTION, SITE_TITLE } from '../consts';
 	<body>
 		<Header />
 		<main>
-			<h1>DuroBlog</h1>
-			<p>Blog personal. Notas, ideas y lo que vaya saliendo.</p>
-			<p><a href={`${import.meta.env.BASE_URL}blog`}>Ver todos los posts →</a></p>
+			<section>
+				<h1>DuroBlog</h1>
+				<p class="lede">Notas sobre programación, matemáticas aplicadas e ideas en desarrollo.</p>
+				<p>
+					<a href={`${import.meta.env.BASE_URL}blog`}>Ver todos los posts →</a>
+				</p>
+			</section>
 		</main>
 		<Footer />
 	</body>
 </html>
+
+<style>
+	main {
+		max-width: 680px;
+		margin: 0 auto;
+		padding: 6em 1.4em 3em;
+	}
+	.lede {
+		font-size: 1.15em;
+		color: var(--muted);
+		margin-bottom: 2em;
+	}
+</style>

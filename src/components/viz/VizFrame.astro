@@ -1,0 +1,63 @@
+---
+interface Props {
+	title: string;
+	number?: string;
+	caption?: string;
+	id?: string;
+}
+
+const { title, number, caption, id } = Astro.props;
+---
+
+<figure class="viz-frame" id={id} role="group" aria-label={title}>
+	<div class="viz-head">
+		{number && <span class="viz-number">{number}</span>}
+		<span class="viz-title">{title}</span>
+	</div>
+	<div class="viz-body">
+		<slot />
+	</div>
+	{caption && <figcaption class="viz-caption">{caption}</figcaption>}
+</figure>
+
+<style>
+	.viz-frame {
+		margin: 3em 0;
+		padding: 1.4em 1.4em 1.2em;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg);
+	}
+	.viz-head {
+		font-family: var(--font-sans);
+		font-size: 0.78rem;
+		letter-spacing: 0.04em;
+		color: var(--muted);
+		margin-bottom: 0.8em;
+		display: flex;
+		gap: 0.8em;
+		text-transform: uppercase;
+	}
+	.viz-number {
+		color: var(--accent);
+	}
+	.viz-title {
+		color: var(--fg);
+		text-transform: none;
+		letter-spacing: 0;
+		font-weight: 500;
+		font-size: 0.9rem;
+	}
+	.viz-body {
+		position: relative;
+		min-height: 80px;
+	}
+	.viz-caption {
+		margin-top: 1em;
+		font-family: var(--font-sans);
+		font-size: 0.82rem;
+		color: var(--muted);
+		line-height: 1.5;
+		max-width: 56ch;
+	}
+</style>

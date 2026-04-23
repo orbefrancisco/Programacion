@@ -1,0 +1,190 @@
+---
+import VizControls from './VizControls.astro';
+import VizFrame from './VizFrame.astro';
+
+const id = 'viz-onehot';
+---
+
+<VizFrame title="One-hot vs. continuo" number="Viz 01" id={id}>
+	<div class="wrap" data-viz={id}>
+		<svg viewBox="0 0 640 300" role="img" aria-label="Comparación entre one-hot y embedding continuo">
+			<!-- Panel A: one-hot grid -->
+			<g data-panel="onehot">
+				<text x="16" y="22" class="panel-title">one-hot (4 dims)</text>
+				<g data-rows></g>
+				<g data-matrix></g>
+				<text x="16" y="260" class="annot">distancia entre cualquier par: √2</text>
+			</g>
+
+			<!-- Panel B: continuous 2D -->
+			<g data-panel="continuous" style="display:none">
+				<text x="16" y="22" class="panel-title">continuo (2 dims)</text>
+				<line x1="60" y1="240" x2="580" y2="240" class="axis" />
+				<line x1="60" y1="240" x2="60" y2="40" class="axis" />
+				<text x="60" y="258" class="axis-label" text-anchor="start">animal</text>
+				<text x="578" y="258" class="axis-label" text-anchor="end">humano</text>
+				<text x="52" y="44" class="axis-label" text-anchor="end" transform="rotate(-90 52 44)">grande</text>
+				<g data-points></g>
+				<g data-callouts></g>
+			</g>
+		</svg>
+	</div>
+	<VizControls>
+		<button class="btn" type="button" data-toggle aria-controls={id}>
+			Cambiar a continuo
+		</button>
+	</VizControls>
+
+	<style>
+		.wrap { width: 100%; }
+		svg { width: 100%; height: auto; display: block; }
+		.panel-title {
+			fill: var(--muted);
+			font-family: var(--font-sans);
+			font-size: 11px;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+		.annot {
+			fill: var(--muted);
+			font-family: var(--font-sans);
+			font-size: 11px;
+		}
+		.axis { stroke: var(--faint); stroke-width: 1; }
+		.axis-label {
+			fill: var(--muted);
+			font-family: var(--font-sans);
+			font-size: 11px;
+		}
+	</style>
+
+	<script>
+		const WORDS = ['king', 'queen', 'dog', 'cat'];
+		const CONT_POS: Record<string, [number, number]> = {
+			king:  [0.95, 0.80],
+			queen: [0.90, 0.78],
+			dog:   [0.10, 0.35],
+			cat:   [0.05, 0.30],
+		};
+
+		const root = document.querySelector<HTMLDivElement>('[data-viz="viz-onehot"]');
+		if (!root) throw new Error('viz root missing');
+		const svg = root.querySelector('svg')!;
+		const panelOH = svg.querySelector<SVGGElement>('[data-panel="onehot"]')!;
+		const panelC  = svg.querySelector<SVGGElement>('[data-panel="continuous"]')!;
+		const rows    = panelOH.querySelector<SVGGElement>('[data-rows]')!;
+		const matrix  = panelOH.querySelector<SVGGElement>('[data-matrix]')!;
+		const points  = panelC.querySelector<SVGGElement>('[data-points]')!;
+		const callout = panelC.querySelector<SVGGElement>('[data-callouts]')!;
+
+		const svgns = 'http://www.w3.org/2000/svg';
+
+		// Build one-hot matrix
+		const cellW = 36, cellH = 30, startX = 160, startY = 60;
+		WORDS.forEach((word, i) => {
+			const label = document.createElementNS(svgns, 'text');
+			label.setAttribute('x', String(startX - 16));
+			label.setAttribute('y', String(startY + i * cellH + 20));
+			label.setAttribute('text-anchor', 'end');
+			label.setAttribute('fill', 'var(--fg)');
+			label.setAttribute('font-family', 'var(--font-sans)');
+			label.setAttribute('font-size', '13');
+			label.textContent = word;
+			rows.appendChild(label);
+			for (let j = 0; j < WORDS.length; j++) {
+				const r = document.createElementNS(svgns, 'rect');
+				r.setAttribute('x', String(startX + j * cellW));
+				r.setAttribute('y', String(startY + i * cellH));
+				r.setAttribute('width', String(cellW - 4));
+				r.setAttribute('height', String(cellH - 6));
+				r.setAttribute('rx', '2');
+				r.setAttribute('fill', i === j ? 'var(--accent)' : 'var(--border)');
+				r.setAttribute('stroke', 'var(--border-strong)');
+				r.setAttribute('stroke-width', '0.5');
+				matrix.appendChild(r);
+			}
+		});
+		for (let j = 0; j < WORDS.length; j++) {
+			const t = document.createElementNS(svgns, 'text');
+			t.setAttribute('x', String(startX + j * cellW + (cellW - 4) / 2));
+			t.setAttribute('y', String(startY - 8));
+			t.setAttribute('text-anchor', 'middle');
+			t.setAttribute('fill', 'var(--muted)');
+			t.setAttribute('font-family', 'var(--font-mono)');
+			t.setAttribute('font-size', '11');
+			t.textContent = `d${j}`;
+			matrix.appendChild(t);
+		}
+
+		// Build continuous panel
+		const x0 = 60, x1 = 580, y0 = 240, y1 = 40;
+		WORDS.forEach((w) => {
+			const [nx, ny] = CONT_POS[w];
+			const cx = x0 + nx * (x1 - x0);
+			const cy = y0 + (1 - ny) * (y1 - y0) * -1 + (y1 - y0); // flip y
+			const cyCorrect = y0 - ny * (y0 - y1);
+			const c = document.createElementNS(svgns, 'circle');
+			c.setAttribute('cx', String(cx));
+			c.setAttribute('cy', String(cyCorrect));
+			c.setAttribute('r', '5');
+			c.setAttribute('fill', 'var(--accent)');
+			points.appendChild(c);
+			const t = document.createElementNS(svgns, 'text');
+			t.setAttribute('x', String(cx + 10));
+			t.setAttribute('y', String(cyCorrect + 4));
+			t.setAttribute('fill', 'var(--fg)');
+			t.setAttribute('font-family', 'var(--font-sans)');
+			t.setAttribute('font-size', '13');
+			t.textContent = w;
+			points.appendChild(t);
+		});
+
+		// Callout: arrow between (king, queen) showing small distance
+		const kx = x0 + CONT_POS.king[0]  * (x1 - x0);
+		const ky = y0 - CONT_POS.king[1]  * (y0 - y1);
+		const qx = x0 + CONT_POS.queen[0] * (x1 - x0);
+		const qy = y0 - CONT_POS.queen[1] * (y0 - y1);
+		const dx = x0 + CONT_POS.dog[0]   * (x1 - x0);
+		const dy = y0 - CONT_POS.dog[1]   * (y0 - y1);
+
+		const line1 = document.createElementNS(svgns, 'path');
+		line1.setAttribute('d', `M${kx + 6},${ky - 8} L${kx + 50},${ky - 40}`);
+		line1.setAttribute('stroke', 'var(--muted)');
+		line1.setAttribute('stroke-width', '0.8');
+		line1.setAttribute('fill', 'none');
+		callout.appendChild(line1);
+		const lbl1 = document.createElementNS(svgns, 'text');
+		lbl1.setAttribute('x', String(kx + 55));
+		lbl1.setAttribute('y', String(ky - 40));
+		lbl1.setAttribute('fill', 'var(--muted)');
+		lbl1.setAttribute('font-family', 'var(--font-sans)');
+		lbl1.setAttribute('font-size', '11');
+		lbl1.textContent = 'king ↔ queen cerca';
+		callout.appendChild(lbl1);
+
+		const line2 = document.createElementNS(svgns, 'path');
+		line2.setAttribute('d', `M${(kx + dx) / 2},${(ky + dy) / 2 - 14} L${(kx + dx) / 2 + 60},${(ky + dy) / 2 - 80}`);
+		line2.setAttribute('stroke', 'var(--muted)');
+		line2.setAttribute('stroke-width', '0.8');
+		line2.setAttribute('fill', 'none');
+		callout.appendChild(line2);
+		const lbl2 = document.createElementNS(svgns, 'text');
+		lbl2.setAttribute('x', String((kx + dx) / 2 + 65));
+		lbl2.setAttribute('y', String((ky + dy) / 2 - 80));
+		lbl2.setAttribute('fill', 'var(--muted)');
+		lbl2.setAttribute('font-family', 'var(--font-sans)');
+		lbl2.setAttribute('font-size', '11');
+		lbl2.textContent = 'king ↔ dog lejos';
+		callout.appendChild(lbl2);
+
+		// Toggle
+		const btn = root.querySelector<HTMLButtonElement>('[data-toggle]')!;
+		let showCont = false;
+		btn.addEventListener('click', () => {
+			showCont = !showCont;
+			panelOH.style.display = showCont ? 'none' : '';
+			panelC.style.display  = showCont ? '' : 'none';
+			btn.textContent = showCont ? 'Cambiar a one-hot' : 'Cambiar a continuo';
+		});
+	</script>
+</VizFrame>

@@ -1,0 +1,145 @@
+---
+title: 'Entendiendo los embeddings: de tokens a geometría'
+description: 'Una reconstrucción desde primeros principios. Por qué el espacio continuo, cómo emerge la aritmética, por qué la métrica importa, y qué cambia cuando dejas de leer tokens para leer contextos.'
+pubDate: 'Apr 23 2026'
+variant: 'longform'
+---
+
+import OneHotVsContinuous from '../../components/viz/OneHotVsContinuous.astro';
+import SemanticArithmetic from '../../components/viz/SemanticArithmetic.astro';
+import SkipGramGD from '../../components/viz/SkipGramGD.astro';
+import DistanceConcentration from '../../components/viz/DistanceConcentration.astro';
+import ContextualAttention from '../../components/viz/ContextualAttention.astro';
+import Manifold3D from '../../components/viz/Manifold3D.astro';
+import Playground from '../../components/viz/Playground.astro';
+
+Un embedding es, en una primera lectura, un diccionario: tokens $\to \mathbb{R}^{d}$. Esa descripción no dice por qué cambia todo lo que toca. Cambia porque, a diferencia de una tabla, $\mathbb{R}^{d}$ tiene **estructura**: distancias, direcciones, subespacios. Cuando los vectores se eligen con cuidado, la geometría del espacio *empieza a significar*.
+
+Este post reconstruye esa afirmación. Cada sección introduce una sola pieza, con una visualización interactiva que la hace visible.
+
+## 1. El problema de representar significado
+
+La manera más ingenua de meter palabras en un vector es **one-hot**: un vocabulario de tamaño $V$, una dimensión por palabra, un $1$ solo en la posición del token. Es una inyección $\text{vocab} \hookrightarrow \mathbb{R}^V$.
+
+Tres defectos, los tres fatales:
+
+- **Ortogonalidad forzada.** Para cualquier par de palabras distintas $i \ne j$,
+  $$\langle e_i, e_j \rangle = 0, \qquad \lVert e_i - e_j \rVert = \sqrt{2}.$$
+  La geometría es un simplex regular. _Toda_ pareja está a la misma distancia. *"gato"* y *"perro"* viven tan lejos como *"gato"* y *"democracia"*.
+- **Dimensionalidad explosiva.** $d = V$. Para un vocabulario razonable ($V \sim 10^5$) cada token ya es un vector gigante antes de empezar a calcular nada.
+- **Cero información.** El vector es una etiqueta categórica disfrazada. No lleva ningún rastro de co-ocurrencia, de categoría sintáctica, de nada.
+
+<OneHotVsContinuous />
+
+Lo que queremos no es más dimensiones, sino **menos** — pero bien elegidas. Un espacio $\mathbb{R}^d$ con $d \ll V$ donde dos tokens parecidos vivan cerca, y las direcciones signifiquen algo. Es decir: una **inmersión métrica** que sea fiel al significado.
+
+## 2. El salto geométrico: aritmética semántica
+
+Cuando el espacio es continuo aparece algo que no existía en el simplex one-hot: **direcciones**. La diferencia entre dos vectores deja de ser una etiqueta arbitraria y se convierte en un desplazamiento.
+
+Si el embedding captura bien la estructura del lenguaje, esos desplazamientos son interpretables. El caso clásico:
+
+$$v_{\text{king}} - v_{\text{man}} + v_{\text{woman}} \approx v_{\text{queen}}$$
+
+No es un truco de magia. Es una consecuencia de que el modelo, al optimizar, ha **alineado una dirección del espacio con el concepto de género**. Si existe un vector $g$ tal que $v_{\text{man}} - v_{\text{woman}} \approx g$ y también $v_{\text{king}} - v_{\text{queen}} \approx g$, entonces
+$$v_{\text{king}} - v_{\text{man}} + v_{\text{woman}} \approx v_{\text{king}} - g \approx v_{\text{queen}}.$$
+
+La linealidad de la aritmética es un reflejo directo de que los atributos semánticos se implementan como *subespacios aproximadamente ortogonales*.
+
+<SemanticArithmetic />
+
+El hecho de que esta estructura emerja **de un modelo entrenado sólo con co-ocurrencias** es lo interesante. Nadie le dijo al modelo que existiera la dimensión "género"; la dedujo de los datos.
+
+## 3. Cómo se aprenden: derivación de skip-gram
+
+Nada de "la fórmula de word2vec es esta". Construyámosla.
+
+**Objetivo.** Dado un corpus, queremos embeddings $v_w \in \mathbb{R}^d$ tales que los tokens que aparecen cerca en texto queden cerca en $\mathbb{R}^d$. Formalizamos: dada una palabra central $w$ y una ventana de contexto $c$ (tokens cercanos),
+$$p(c \mid w) \; \text{es alta si } w, c \text{ co-ocurren}.$$
+
+**Parametrización.** Dos embeddings por palabra: uno como centro ($v_w$) y otro como contexto ($u_c$). Modelamos la probabilidad vía softmax:
+$$p(c \mid w) = \frac{\exp(u_c^\top v_w)}{\sum_{c' \in V} \exp(u_{c'}^\top v_w)}.$$
+
+La log-verosimilitud negativa sobre un par positivo $(w, c^+)$ es
+$$\mathcal{L}(w, c^+) = -\log p(c^+ \mid w) = -u_{c^+}^\top v_w + \log \sum_{c'} \exp(u_{c'}^\top v_w).$$
+
+**El problema.** Esa suma sobre $V$ (vocabulario entero) es carísima: un paso de gradiente exige $O(V)$ productos escalares por token.
+
+**La solución: negative sampling.** Sustituimos la tarea multinomial por una tarea binaria mucho más barata: "¿este par es real o inventado?". Para cada par positivo $(w, c^+)$ muestreamos $K$ negativos $c^-_k$ de una distribución de ruido. La loss pasa a ser
+$$\mathcal{L}_{\text{NS}} = -\log\sigma\!\left(u_{c^+}^\top v_w\right) - \sum_{k=1}^{K} \log\sigma\!\left(-u_{c^-_k}^\top v_w\right)$$
+con $\sigma(x) = 1/(1+e^{-x})$.
+
+**Lectura física.** Para un físico esto es un **potencial de interacción**:
+
+- Cada par positivo contribuye un término atractivo: minimizar $-\log\sigma(u^\top v)$ empuja $u$ y $v$ a alinearse, porque $\sigma$ es creciente.
+- Cada par negativo contribuye un término repulsivo: minimizar $-\log\sigma(-u^\top v)$ empuja $u$ y $v$ a desalinearse.
+
+Los gradientes lo hacen explícito:
+$$\frac{\partial \mathcal{L}_{\text{NS}}}{\partial v_w} = \underbrace{(\sigma(u_{c^+}^\top v_w) - 1)\, u_{c^+}}_{\text{atracción}} + \sum_k \underbrace{\sigma(u_{c^-_k}^\top v_w)\, u_{c^-_k}}_{\text{repulsión}}.$$
+
+Imagina $\lvert V \rvert$ partículas en $\mathbb{R}^d$. Las partículas que comparten contextos se atraen con fuerza $1 - \sigma(\cdot) \in (0,1)$ (modulada por cuánto ya están alineadas); las que nunca co-ocurren se repelen con fuerza $\sigma(\cdot)$. El estado de equilibrio es el embedding final. La descripción es literal, no metafórica.
+
+<SkipGramGD />
+
+En la simulación se ve claro: los sustantivos de la misma categoría (royalty, animales) se pegan, los verbos forman su propio cluster, y los géneros se separan a lo largo de un eje aunque nadie les dijo cuál.
+
+## 4. La métrica importa: coseno vs. euclidiana
+
+¿Por qué casi todo el mundo usa similitud coseno y no distancia euclidiana para comparar embeddings? No es convención: es una consecuencia de la **concentración de medida en alta dimensión**.
+
+Considera dos vectores aleatorios con entradas $x_i, y_i \sim \mathcal{N}(0, 1)$ iid. Normalizamos: $\hat x = x / \lVert x \rVert$, análogo para $\hat y$. Queremos la distribución de $\cos\theta = \hat x^\top \hat y$.
+
+Por simetría podemos fijar $\hat x = e_1$ (el primer eje canónico). Entonces $\cos\theta = \hat y_1$, la primera coordenada de un punto uniforme sobre $S^{d-1}$. La densidad es conocida:
+$$f_{\cos\theta}(t) = \frac{\Gamma(d/2)}{\sqrt{\pi}\,\Gamma((d-1)/2)}\,(1-t^2)^{(d-3)/2}, \qquad t \in [-1, 1].$$
+
+De aquí salen dos hechos:
+
+- **Media:** $\mathbb{E}[\cos\theta] = 0$ por simetría.
+- **Varianza:** $\operatorname{Var}(\cos\theta) = 1/d$.
+
+Es decir, $\cos\theta$ concentra alrededor de $0$ con desviación típica $1/\sqrt{d}$. Para $d = 768$ (un BERT modesto), $\sigma \approx 0{,}036$: casi cualquier par aleatorio es ortogonal, hasta décimas. **La información útil vive en la cola**.
+
+<DistanceConcentration />
+
+Consecuencia operativa: en alta dimensión la **magnitud** de los vectores es ruido; lo que lleva significado es la **dirección**. La similitud coseno ignora la magnitud por construcción. La euclidiana la mete dentro — y además, para vectores normalizados, es monotónicamente equivalente al coseno:
+$$\lVert \hat x - \hat y \rVert^2 = 2(1 - \hat x^\top \hat y).$$
+
+En la práctica: normaliza y usa coseno (o producto punto sobre vectores normalizados, que es lo mismo).
+
+## 5. Del lookup estático al vector contextual
+
+Word2vec y similares entregan una tabla: un vector por token, independientemente del contexto. Eso es un problema, porque las palabras son ambiguas: *"banco"* es un asiento, una orilla y una institución financiera.
+
+La solución no es tener $N$ vectores por palabra, sino **construir el vector en el momento**, a partir de los vecinos. Eso es la operación de **atención**:
+$$\text{Attention}(Q, K, V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d}}\right) V.$$
+
+Desempaquetada: para cada token $i$ con embedding query $q_i$, calculamos una distribución de pesos $\alpha_{ij} \propto \exp(q_i^\top k_j / \sqrt{d})$ sobre los tokens del contexto, y usamos esos pesos para ponderar sus vectores-valor:
+$$h_i = \sum_j \alpha_{ij}\, v_j.$$
+
+Mirado así, attention es un **operador lineal estocástico**: re-mezcla los embeddings de la secuencia según similitud query-key. El vector contextual de una palabra es una combinación convexa de los vectores de sus vecinos, pesada por cuánto cada vecino importa para ella.
+
+<ContextualAttention />
+
+Nota que no cambia el espacio — la operación vive sobre el mismo $\mathbb{R}^d$ que el embedding estático — pero cambia **qué punto del espacio** representa a cada token. El embedding estático era un lookup; el contextual es una trayectoria que depende del resto de la oración.
+
+## 6. La hipótesis de la variedad
+
+Los embeddings viven en $\mathbb{R}^d$ con $d$ grande (768, 1536, 4096), pero no **usan** todas las direcciones. Empíricamente, la nube de embeddings se concentra sobre una **subvariedad** $\mathcal{M} \subset \mathbb{R}^d$ de dimensión efectiva mucho menor. Los atributos semánticos se alinean con direcciones preferentes; las direcciones ortogonales a $\mathcal{M}$ son ruido o capacidad sin usar.
+
+Formalmente, este es el territorio de la **geometría de la información**: la métrica de Fisher-Rao dota al espacio de distribuciones de una métrica riemanniana natural, y los embeddings aprendidos pueden verse como una parametrización de una familia paramétrica de distribuciones condicionales. No vamos a abrir ese hilo aquí, pero dejarlo señalado importa: cuando uno habla de "dirección" en un embedding, la métrica que hay debajo no es del todo trivial.
+
+La visualización proxy es el **grafo de $k$-vecinos más cercanos**: si el conjunto de puntos vive cerca de una variedad suave de dimensión $k_{\text{eff}}$, el grafo $k$-NN (con $k$ pequeño) es una buena aproximación discreta a su estructura local. Rota la nube y activa el grafo para ver cómo los clusters semánticos son comunidades densas del grafo.
+
+<Manifold3D />
+
+## 7. Playground
+
+Todo lo anterior converge en una operación trivial: **busca los vectores más parecidos**. Eso es búsqueda semántica, eso es la recuperación de un RAG, eso es la primera línea de la recomendación.
+
+<Playground />
+
+El vocabulario y los embeddings son sintéticos (ver README para detalles del diseño), pero la *estructura* es real: cuando escribes `king − man + woman`, el vector resultante aterriza cerca de `queen` porque los ejes están alineados con esas relaciones. En un modelo de verdad esa alineación emerge del entrenamiento; aquí la hemos precomputado a mano para demostrar la mecánica.
+
+---
+
+El embedding no es una tabla. Es una **geometría inducida por los datos**, y casi todo lo interesante que se hace hoy con lenguaje, imágenes, código o moléculas empieza por ahí: convertir un objeto discreto en un punto, y dejar que la distancia haga el trabajo.

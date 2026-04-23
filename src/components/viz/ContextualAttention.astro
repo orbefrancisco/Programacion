@@ -1,0 +1,187 @@
+---
+import VizControls from './VizControls.astro';
+import VizFrame from './VizFrame.astro';
+---
+
+<VizFrame
+	title="De vector estático a vector contextual"
+	number="Viz 05"
+	caption="«Banco» parte del mismo vector estático en ambas frases. La capa de atención lo reubica según sus vecinos: hacia 'silla/parque' en la primera frase, hacia 'dinero/cuenta' en la segunda."
+>
+	<div class="wrap" data-viz="viz-ctx">
+		<svg viewBox="0 0 720 340" role="img" aria-label="Attention redistribuye el vector de 'banco'">
+			<g class="axes">
+				<line x1="40" y1="300" x2="680" y2="300" />
+				<text x="40"  y="320" text-anchor="start">← finanza absurda</text>
+				<text x="680" y="320" text-anchor="end">finanzas →</text>
+			</g>
+			<g data-refs></g>
+			<g data-static></g>
+			<g data-ctx></g>
+			<g data-arrow></g>
+		</svg>
+		<div class="sentence" data-sentence></div>
+	</div>
+
+	<VizControls>
+		<button class="btn" type="button" data-sent="0">Frase A: «me senté en el banco del parque»</button>
+		<button class="btn" type="button" data-sent="1">Frase B: «retiré dinero del banco»</button>
+	</VizControls>
+
+	<style>
+		.wrap { width: 100%; }
+		svg { width: 100%; height: auto; display: block; }
+		.axes line { stroke: var(--faint); stroke-width: 1; }
+		.axes text {
+			fill: var(--muted);
+			font-family: var(--font-sans);
+			font-size: 10px;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+		.sentence {
+			margin-top: 0.5em;
+			font-family: var(--font-sans);
+			font-size: 0.85rem;
+			color: var(--muted);
+			text-align: center;
+		}
+		.sentence strong { color: var(--accent); font-weight: 500; }
+	</style>
+
+	<script>
+		// 2D static embeddings for Spanish words. Axis: valence toward "finance".
+		// (Pedagogical, not from a trained model.)
+		const STATIC: Record<string, [number, number]> = {
+			banco:   [ 0.00,  0.10],   // static lives midway
+			senté:   [-0.75,  0.30],
+			parque:  [-0.80,  0.60],
+			silla:   [-0.65,  0.10],
+			dinero:  [ 0.85,  0.20],
+			retiré:  [ 0.70,  0.40],
+			cuenta:  [ 0.90, -0.10],
+			me:      [-0.15, -0.30],
+			en:      [-0.10, -0.55],
+			el:      [ 0.00, -0.60],
+			del:     [ 0.05, -0.55],
+		};
+
+		const SENTENCES: string[][] = [
+			['me', 'senté', 'en', 'el', 'banco', 'del', 'parque'],
+			['retiré', 'dinero', 'del', 'banco'],
+		];
+
+		const REFERENCES = ['silla', 'cuenta']; // shown as faint context anchors
+
+		function softmax(xs: number[]): number[] {
+			const m = Math.max(...xs);
+			const ex = xs.map((x) => Math.exp(x - m));
+			const s = ex.reduce((a, b) => a + b, 0);
+			return ex.map((x) => x / s);
+		}
+
+		function dot(a: [number, number], b: [number, number]): number { return a[0]*b[0] + a[1]*b[1]; }
+
+		function contextualBanco(sentence: string[]): [number, number] {
+			const vectors = sentence.map((w) => STATIC[w] as [number, number]);
+			const queryIdx = sentence.indexOf('banco');
+			const q = vectors[queryIdx];
+			const D = 2;
+			const scores = vectors.map((k) => dot(q, k) / Math.sqrt(D));
+			const a = softmax(scores);
+			let x = 0, y = 0;
+			for (let i = 0; i < vectors.length; i++) {
+				x += a[i] * vectors[i][0];
+				y += a[i] * vectors[i][1];
+			}
+			return [x, y];
+		}
+
+		const root = document.querySelector<HTMLDivElement>('[data-viz="viz-ctx"]');
+		if (!root) throw new Error();
+		const svg = root.querySelector('svg')!;
+		const refsG   = svg.querySelector<SVGGElement>('[data-refs]')!;
+		const staticG = svg.querySelector<SVGGElement>('[data-static]')!;
+		const ctxG    = svg.querySelector<SVGGElement>('[data-ctx]')!;
+		const arrG    = svg.querySelector<SVGGElement>('[data-arrow]')!;
+		const sentEl  = root.querySelector<HTMLDivElement>('[data-sentence]')!;
+
+		const svgns = 'http://www.w3.org/2000/svg';
+		const minX = 40, maxX = 680, midY = 180;
+		const xs = (x: number) => minX + ((x + 1) / 2) * (maxX - minX);
+		const ys = (y: number) => midY - y * 130;
+
+		function el<K extends keyof SVGElementTagNameMap>(name: K): SVGElementTagNameMap[K] {
+			return document.createElementNS(svgns, name);
+		}
+
+		function drawWord(g: SVGGElement, word: string, pos: [number, number], accent: boolean, ghost: boolean) {
+			const cx = xs(pos[0]);
+			const cy = ys(pos[1]);
+			const c = el('circle');
+			c.setAttribute('cx', String(cx));
+			c.setAttribute('cy', String(cy));
+			c.setAttribute('r', accent ? '6' : '3.5');
+			c.setAttribute('fill', accent ? 'var(--accent)' : 'var(--muted)');
+			c.setAttribute('opacity', ghost ? '0.35' : '0.95');
+			g.appendChild(c);
+			const t = el('text');
+			t.setAttribute('x', String(cx + 9));
+			t.setAttribute('y', String(cy + 4));
+			t.setAttribute('fill', accent ? 'var(--fg)' : 'var(--muted)');
+			t.setAttribute('font-family', 'var(--font-sans)');
+			t.setAttribute('font-size', accent ? '12' : '11');
+			t.setAttribute('opacity', ghost ? '0.5' : '1');
+			t.textContent = word;
+			g.appendChild(t);
+		}
+
+		// References once
+		for (const w of REFERENCES) drawWord(refsG, w, STATIC[w], false, false);
+
+		function clear(g: SVGGElement) {
+			while (g.firstChild) g.removeChild(g.firstChild);
+		}
+
+		function render(idx: number) {
+			clear(staticG); clear(ctxG); clear(arrG);
+			const sent = SENTENCES[idx];
+			for (const w of sent) {
+				if (w === 'banco') continue;
+				drawWord(staticG, w, STATIC[w], false, false);
+			}
+
+			// Static banco (ghost)
+			drawWord(staticG, 'banco (estático)', STATIC.banco, false, true);
+
+			// Contextual banco
+			const ctx = contextualBanco(sent);
+			drawWord(ctxG, 'banco (contextual)', ctx, true, false);
+
+			// Arrow from static to contextual
+			const sp = { x: xs(STATIC.banco[0]), y: ys(STATIC.banco[1]) };
+			const ep = { x: xs(ctx[0]), y: ys(ctx[1]) };
+			const line = el('line');
+			line.setAttribute('x1', String(sp.x));
+			line.setAttribute('y1', String(sp.y));
+			line.setAttribute('x2', String(ep.x));
+			line.setAttribute('y2', String(ep.y));
+			line.setAttribute('stroke', 'var(--accent)');
+			line.setAttribute('stroke-width', '1.2');
+			line.setAttribute('stroke-dasharray', '4 3');
+			arrG.appendChild(line);
+
+			// Sentence label
+			sentEl.innerHTML = sent
+				.map((w) => (w === 'banco' ? `<strong>${w}</strong>` : w))
+				.join(' ');
+		}
+
+		for (const b of root.querySelectorAll<HTMLButtonElement>('[data-sent]')) {
+			b.addEventListener('click', () => {
+				render(Number(b.dataset.sent));
+			});
+		}
+		render(0);
+	</script>
+</VizFrame>

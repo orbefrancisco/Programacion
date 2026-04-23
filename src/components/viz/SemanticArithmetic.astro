@@ -1,0 +1,267 @@
+---
+import VizControls from './VizControls.astro';
+import VizFrame from './VizFrame.astro';
+---
+
+<VizFrame
+	title="Aritmética semántica en 2D"
+	number="Viz 02"
+	caption="Proyección sobre los ejes género × realeza. La analogía se resuelve en el espacio de 8 dimensiones completo y se busca el vecino más cercano por similitud coseno."
+>
+	<div class="wrap" data-viz="viz-arith">
+		<svg viewBox="0 0 720 360" role="img" aria-label="Aritmética vectorial sobre un embedding pedagógico">
+			<!-- axes -->
+			<g class="axes">
+				<line x1="60" y1="180" x2="700" y2="180" />
+				<line x1="380" y1="20" x2="380" y2="340" />
+				<text x="700" y="174" text-anchor="end">+ masc</text>
+				<text x="60"  y="174" text-anchor="start">− fem</text>
+				<text x="384" y="24"  text-anchor="start">+ realeza</text>
+				<text x="384" y="336" text-anchor="start">− común</text>
+			</g>
+			<g data-points></g>
+			<g data-overlay></g>
+			<g data-equation></g>
+		</svg>
+	</div>
+
+	<VizControls>
+		<label class="preset-label">
+			<span>Analogía</span>
+			<select data-preset aria-label="Seleccionar analogía">
+				<option value="0">king − man + woman</option>
+				<option value="1">prince − boy + girl</option>
+				<option value="2">father − man + woman</option>
+				<option value="3">uncle − man + woman</option>
+				<option value="4">actor − man + woman</option>
+				<option value="5">puppy − dog + cat</option>
+			</select>
+		</label>
+		<button class="btn" type="button" data-run>Resolver</button>
+		<div class="result"><span>Resultado:</span> <span class="value" data-result>—</span></div>
+	</VizControls>
+
+	<style>
+		.wrap { width: 100%; }
+		svg { width: 100%; height: auto; display: block; }
+		.axes line { stroke: var(--faint); stroke-width: 1; }
+		.axes text {
+			fill: var(--muted);
+			font-family: var(--font-sans);
+			font-size: 10px;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+		.preset-label { flex: 1; }
+		select {
+			background: var(--bg);
+			color: var(--fg);
+			border: 1px solid var(--border-strong);
+			padding: 0.4em 0.5em;
+			border-radius: 4px;
+			font-family: var(--font-sans);
+			font-size: 0.85rem;
+		}
+		.result {
+			display: flex;
+			gap: 0.5em;
+			align-items: center;
+			font-family: var(--font-sans);
+			font-size: 0.85rem;
+		}
+	</style>
+
+	<script>
+		import { MINI_EMBEDDINGS, ARITHMETIC_EXAMPLES, GROUP_COLORS } from '../../data/mini-embeddings';
+		import { cosineSim, sub, add } from '../../lib/viz/math';
+
+		const root = document.querySelector<HTMLDivElement>('[data-viz="viz-arith"]');
+		if (!root) throw new Error();
+		const svg = root.querySelector('svg')!;
+		const pointsG  = svg.querySelector<SVGGElement>('[data-points]')!;
+		const overlayG = svg.querySelector<SVGGElement>('[data-overlay]')!;
+		const eqG      = svg.querySelector<SVGGElement>('[data-equation]')!;
+		const select   = root.querySelector<HTMLSelectElement>('[data-preset]')!;
+		const runBtn   = root.querySelector<HTMLButtonElement>('[data-run]')!;
+		const resultEl = root.querySelector<HTMLSpanElement>('[data-result]')!;
+
+		const svgns = 'http://www.w3.org/2000/svg';
+
+		// Plot extent
+		const W = 720, H = 360;
+		const padX = 60, padY = 40;
+		const xFromGender  = (g: number) => 380 + g * (W / 2 - padX);
+		const yFromRoyalty = (r: number) => 180 - r * (H / 2 - padY);
+
+		const byWord: Record<string, number> = Object.fromEntries(
+			MINI_EMBEDDINGS.map((w, i) => [w.word, i]),
+		);
+
+		function el<K extends keyof SVGElementTagNameMap>(name: K): SVGElementTagNameMap[K] {
+			return document.createElementNS(svgns, name);
+		}
+
+		// Draw all points
+		MINI_EMBEDDINGS.forEach((w) => {
+			const cx = xFromGender(w.vec[0]);
+			const cy = yFromRoyalty(w.vec[1]);
+			const c = el('circle');
+			c.setAttribute('cx', String(cx));
+			c.setAttribute('cy', String(cy));
+			c.setAttribute('r', '3');
+			c.setAttribute('fill', GROUP_COLORS[w.group]);
+			c.setAttribute('opacity', '0.75');
+			pointsG.appendChild(c);
+			const t = el('text');
+			t.setAttribute('x', String(cx + 6));
+			t.setAttribute('y', String(cy + 3));
+			t.setAttribute('fill', 'var(--muted)');
+			t.setAttribute('font-family', 'var(--font-sans)');
+			t.setAttribute('font-size', '10.5');
+			t.textContent = w.word;
+			pointsG.appendChild(t);
+		});
+
+		function arrow(x1: number, y1: number, x2: number, y2: number, color: string, dashed = false) {
+			const p = el('line');
+			p.setAttribute('x1', String(x1));
+			p.setAttribute('y1', String(y1));
+			p.setAttribute('x2', String(x2));
+			p.setAttribute('y2', String(y2));
+			p.setAttribute('stroke', color);
+			p.setAttribute('stroke-width', '1.4');
+			if (dashed) p.setAttribute('stroke-dasharray', '4 3');
+			p.setAttribute('marker-end', 'url(#arrowhead)');
+			return p;
+		}
+
+		// Shared arrowhead marker
+		const defs = el('defs');
+		const marker = el('marker');
+		marker.setAttribute('id', 'arrowhead');
+		marker.setAttribute('viewBox', '0 0 10 10');
+		marker.setAttribute('refX', '8');
+		marker.setAttribute('refY', '5');
+		marker.setAttribute('markerWidth', '5');
+		marker.setAttribute('markerHeight', '5');
+		marker.setAttribute('orient', 'auto-start-reverse');
+		const path = el('path');
+		path.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+		path.setAttribute('fill', 'currentColor');
+		marker.appendChild(path);
+		defs.appendChild(marker);
+		svg.insertBefore(defs, svg.firstChild);
+
+		function clear(g: SVGGElement) {
+			while (g.firstChild) g.removeChild(g.firstChild);
+		}
+
+		function nearest(target: number[], exclude: Set<string>): { word: string; score: number } {
+			let best = { word: '', score: -Infinity };
+			for (const w of MINI_EMBEDDINGS) {
+				if (exclude.has(w.word)) continue;
+				const s = cosineSim(target, w.vec);
+				if (s > best.score) best = { word: w.word, score: s };
+			}
+			return best;
+		}
+
+		function animate(duration: number, tick: (t: number) => void): Promise<void> {
+			return new Promise((res) => {
+				const t0 = performance.now();
+				const step = (now: number) => {
+					const t = Math.min(1, (now - t0) / duration);
+					tick(t);
+					if (t < 1) requestAnimationFrame(step); else res();
+				};
+				requestAnimationFrame(step);
+			});
+		}
+
+		async function run() {
+			clear(overlayG);
+			clear(eqG);
+			resultEl.textContent = '…';
+			const i = Number(select.value);
+			const ex = ARITHMETIC_EXAMPLES[i];
+			const a = MINI_EMBEDDINGS[byWord[ex.a]].vec;
+			const b = MINI_EMBEDDINGS[byWord[ex.minus]].vec;
+			const c = MINI_EMBEDDINGS[byWord[ex.plus]].vec;
+
+			const pA = { x: xFromGender(a[0]), y: yFromRoyalty(a[1]) };
+			const pB = { x: xFromGender(b[0]), y: yFromRoyalty(b[1]) };
+			const pC = { x: xFromGender(c[0]), y: yFromRoyalty(c[1]) };
+
+			// Intermediate point after A - B
+			const amb = sub(a, b);
+			const ambPos = { x: xFromGender(amb[0]), y: yFromRoyalty(amb[1]) };
+			// Final: A - B + C
+			const result = add(sub(a, b), c);
+			const pR = { x: xFromGender(result[0]), y: yFromRoyalty(result[1]) };
+
+			// Phase 1: draw −B arrow (from A to A−B)
+			const arrBminus = arrow(pA.x, pA.y, pA.x, pA.y, 'var(--accent)');
+			arrBminus.setAttribute('color', 'var(--accent)');
+			overlayG.appendChild(arrBminus);
+			await animate(500, (t) => {
+				arrBminus.setAttribute('x2', String(pA.x + (ambPos.x - pA.x) * t));
+				arrBminus.setAttribute('y2', String(pA.y + (ambPos.y - pA.y) * t));
+			});
+
+			// Phase 2: draw +C arrow
+			const arrCplus = arrow(ambPos.x, ambPos.y, ambPos.x, ambPos.y, 'var(--accent)');
+			arrCplus.setAttribute('color', 'var(--accent)');
+			overlayG.appendChild(arrCplus);
+			await animate(500, (t) => {
+				arrCplus.setAttribute('x2', String(ambPos.x + (pR.x - ambPos.x) * t));
+				arrCplus.setAttribute('y2', String(ambPos.y + (pR.y - ambPos.y) * t));
+			});
+
+			// Predicted point: small ring
+			const ring = el('circle');
+			ring.setAttribute('cx', String(pR.x));
+			ring.setAttribute('cy', String(pR.y));
+			ring.setAttribute('r', '0');
+			ring.setAttribute('fill', 'none');
+			ring.setAttribute('stroke', 'var(--accent)');
+			ring.setAttribute('stroke-width', '1.4');
+			overlayG.appendChild(ring);
+			await animate(260, (t) => ring.setAttribute('r', String(3 + t * 8)));
+
+			const near = nearest(result, new Set([ex.a, ex.minus, ex.plus]));
+			resultEl.textContent = near.word + ' ' + `(${near.score.toFixed(3)})`;
+
+			// Connect predicted point to nearest with dashed line
+			const nearIdx = byWord[near.word];
+			const nW = MINI_EMBEDDINGS[nearIdx].vec;
+			const pN = { x: xFromGender(nW[0]), y: yFromRoyalty(nW[1]) };
+			const dash = el('line');
+			dash.setAttribute('x1', String(pR.x));
+			dash.setAttribute('y1', String(pR.y));
+			dash.setAttribute('x2', String(pN.x));
+			dash.setAttribute('y2', String(pN.y));
+			dash.setAttribute('stroke', 'var(--accent)');
+			dash.setAttribute('stroke-width', '0.8');
+			dash.setAttribute('stroke-dasharray', '3 3');
+			overlayG.appendChild(dash);
+
+			// Equation label near top-left
+			const eq = el('text');
+			eq.setAttribute('x', '70');
+			eq.setAttribute('y', '28');
+			eq.setAttribute('fill', 'var(--fg)');
+			eq.setAttribute('font-family', 'var(--font-mono)');
+			eq.setAttribute('font-size', '11.5');
+			eq.textContent = `${ex.a} − ${ex.minus} + ${ex.plus}  ≈  ${near.word}`;
+			eqG.appendChild(eq);
+		}
+
+		runBtn.addEventListener('click', run);
+		select.addEventListener('change', () => {
+			clear(overlayG); clear(eqG);
+			resultEl.textContent = '—';
+		});
+		// Run once on load
+		requestAnimationFrame(() => void run());
+	</script>
+</VizFrame>

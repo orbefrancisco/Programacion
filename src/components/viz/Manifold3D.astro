@@ -1,0 +1,256 @@
+---
+import VizControls from './VizControls.astro';
+import VizFrame from './VizFrame.astro';
+---
+
+<VizFrame
+	title="La variedad de baja dimensión efectiva"
+	number="Viz 06"
+	caption="Proyección PCA a 3D de ~170 embeddings de 16d. El toggle dibuja el grafo k-NN: aunque el espacio ambiente es de 16 dimensiones, los vectores se concentran en una variedad de dimensión efectiva mucho menor. (three.js se carga solo cuando el componente entra en viewport.)"
+>
+	<div class="wrap" data-viz="viz-3d">
+		<div class="canvas-host" data-canvas>
+			<div class="loading" data-loading>
+				cargando three.js…
+			</div>
+		</div>
+		<div class="head">
+			<span>z</span>
+			<span>·</span>
+			<span>PCA 1-2-3</span>
+		</div>
+	</div>
+
+	<VizControls>
+		<label class="check">
+			<input type="checkbox" data-knn />
+			<span>Mostrar grafo k-NN (k=3)</span>
+		</label>
+		<label class="check">
+			<input type="checkbox" data-rotate checked />
+			<span>Rotación automática</span>
+		</label>
+		<span class="hint">Arrastra para rotar · rueda para zoom</span>
+	</VizControls>
+
+	<style>
+		.wrap { position: relative; }
+		.canvas-host {
+			width: 100%;
+			aspect-ratio: 16 / 9;
+			min-height: 320px;
+			background:
+				radial-gradient(ellipse at center, color-mix(in oklab, var(--accent) 3%, transparent), transparent 60%),
+				var(--bg);
+			border-radius: 4px;
+			position: relative;
+		}
+		.canvas-host :global(canvas) { display: block; width: 100%; height: 100%; }
+		.loading {
+			position: absolute;
+			inset: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			color: var(--faint);
+			font-family: var(--font-sans);
+			font-size: 0.82rem;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+		}
+		.head {
+			position: absolute;
+			top: 0.4em;
+			left: 0.6em;
+			font-family: var(--font-sans);
+			font-size: 0.7rem;
+			color: var(--muted);
+			letter-spacing: 0.05em;
+			text-transform: uppercase;
+			display: flex;
+			gap: 0.5em;
+			pointer-events: none;
+		}
+		.check {
+			flex-direction: row !important;
+			align-items: center;
+			gap: 0.5em !important;
+		}
+		.check input { accent-color: var(--accent); }
+		.hint { font-size: 0.78rem; color: var(--faint); }
+	</style>
+
+	<script>
+		import { PLAYGROUND_VOCAB } from '../../data/playground-vocab';
+		import { pca, projectAll } from '../../lib/viz/pca';
+		import { cosineSim } from '../../lib/viz/math';
+
+		const root = document.querySelector<HTMLDivElement>('[data-viz="viz-3d"]');
+		if (!root) throw new Error();
+		const host = root.querySelector<HTMLDivElement>('[data-canvas]')!;
+		const loading = root.querySelector<HTMLDivElement>('[data-loading]')!;
+		const knnToggle = root.querySelector<HTMLInputElement>('[data-knn]')!;
+		const rotToggle = root.querySelector<HTMLInputElement>('[data-rotate]')!;
+
+		let initialized = false;
+		async function init() {
+			if (initialized) return;
+			initialized = true;
+
+			// Dynamic import of three.js: keeps the initial bundle clean.
+			const THREE = await import('three');
+			loading.remove();
+
+			const X = PLAYGROUND_VOCAB.map((w) => w.vec);
+			const p = pca(X, 3);
+			const pts3D = projectAll(X, p);
+
+			let maxAbs = 0.0001;
+			for (const v of pts3D) for (const x of v) if (Math.abs(x) > maxAbs) maxAbs = Math.abs(x);
+			const scale = 2.0 / maxAbs;
+			const positions = new Float32Array(pts3D.length * 3);
+			for (let i = 0; i < pts3D.length; i++) {
+				positions[i * 3 + 0] = pts3D[i][0] * scale;
+				positions[i * 3 + 1] = pts3D[i][1] * scale;
+				positions[i * 3 + 2] = pts3D[i][2] * scale;
+			}
+
+			const K = 3;
+			const edgeSet = new Set<string>();
+			for (let i = 0; i < X.length; i++) {
+				const scores: Array<[number, number]> = [];
+				for (let j = 0; j < X.length; j++) {
+					if (i === j) continue;
+					scores.push([j, cosineSim(X[i], X[j])]);
+				}
+				scores.sort((a, b) => b[1] - a[1]);
+				for (let k = 0; k < K; k++) {
+					const j = scores[k][0];
+					const key = i < j ? `${i}-${j}` : `${j}-${i}`;
+					edgeSet.add(key);
+				}
+			}
+			const edges = Array.from(edgeSet).map((s) => s.split('-').map(Number) as [number, number]);
+
+			const scene = new THREE.Scene();
+			const width0 = host.clientWidth || 640;
+			const height0 = host.clientHeight || 360;
+			const cam = new THREE.PerspectiveCamera(45, width0 / height0, 0.1, 100);
+			cam.position.set(4.5, 3.2, 4.8);
+			cam.lookAt(0, 0, 0);
+
+			const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+			renderer.setSize(width0, height0, false);
+			host.appendChild(renderer.domElement);
+
+			const pointsGeom = new THREE.BufferGeometry();
+			pointsGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+			const pointsMat = new THREE.PointsMaterial({
+				color: 0xF59E0B,
+				size: 0.06,
+				sizeAttenuation: true,
+				transparent: true,
+				opacity: 0.95,
+			});
+			const pointsObj = new THREE.Points(pointsGeom, pointsMat);
+			scene.add(pointsObj);
+
+			const edgePositions = new Float32Array(edges.length * 6);
+			for (let e = 0; e < edges.length; e++) {
+				const [a, b] = edges[e];
+				edgePositions[e * 6 + 0] = positions[a * 3 + 0];
+				edgePositions[e * 6 + 1] = positions[a * 3 + 1];
+				edgePositions[e * 6 + 2] = positions[a * 3 + 2];
+				edgePositions[e * 6 + 3] = positions[b * 3 + 0];
+				edgePositions[e * 6 + 4] = positions[b * 3 + 1];
+				edgePositions[e * 6 + 5] = positions[b * 3 + 2];
+			}
+			const edgesGeom = new THREE.BufferGeometry();
+			edgesGeom.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+			const edgesMat = new THREE.LineBasicMaterial({
+				color: 0x8C5A07,
+				transparent: true,
+				opacity: 0.4,
+			});
+			const edgesObj = new THREE.LineSegments(edgesGeom, edgesMat);
+			edgesObj.visible = false;
+			scene.add(edgesObj);
+
+			let azi = Math.atan2(cam.position.x, cam.position.z);
+			let elv = Math.atan2(cam.position.y, Math.hypot(cam.position.x, cam.position.z));
+			let rad = cam.position.length();
+			let dragging = false;
+			let lastX = 0, lastY = 0;
+
+			function updateCamera() {
+				cam.position.set(
+					rad * Math.cos(elv) * Math.sin(azi),
+					rad * Math.sin(elv),
+					rad * Math.cos(elv) * Math.cos(azi),
+				);
+				cam.lookAt(0, 0, 0);
+			}
+
+			host.addEventListener('pointerdown', (e) => {
+				dragging = true;
+				lastX = e.clientX; lastY = e.clientY;
+				host.setPointerCapture(e.pointerId);
+			});
+			host.addEventListener('pointerup', (e) => {
+				dragging = false;
+				host.releasePointerCapture(e.pointerId);
+			});
+			host.addEventListener('pointermove', (e) => {
+				if (!dragging) return;
+				const dx = e.clientX - lastX;
+				const dy = e.clientY - lastY;
+				lastX = e.clientX; lastY = e.clientY;
+				azi -= dx * 0.01;
+				elv = Math.max(-1.4, Math.min(1.4, elv + dy * 0.01));
+				updateCamera();
+			});
+			host.addEventListener('wheel', (e) => {
+				e.preventDefault();
+				rad = Math.max(2.5, Math.min(15, rad * (1 + e.deltaY * 0.0015)));
+				updateCamera();
+			}, { passive: false });
+
+			knnToggle.addEventListener('change', () => {
+				edgesObj.visible = knnToggle.checked;
+			});
+
+			function resize() {
+				const w = host.clientWidth;
+				const h = host.clientHeight || w * 9 / 16;
+				renderer.setSize(w, h, false);
+				cam.aspect = w / h;
+				cam.updateProjectionMatrix();
+			}
+			const ro = new ResizeObserver(resize);
+			ro.observe(host);
+
+			function animate() {
+				requestAnimationFrame(animate);
+				if (rotToggle.checked && !dragging) {
+					azi += 0.0015;
+					updateCamera();
+				}
+				renderer.render(scene, cam);
+			}
+			animate();
+		}
+
+		// Lazy init: only load three.js when the viz enters viewport.
+		const io = new IntersectionObserver((entries, obs) => {
+			for (const e of entries) {
+				if (e.isIntersecting) {
+					void init();
+					obs.disconnect();
+					break;
+				}
+			}
+		}, { rootMargin: '200px' });
+		io.observe(host);
+	</script>
+</VizFrame>

@@ -1,0 +1,86 @@
+---
+// Minimalist control row for sliders, toggles, etc. inside a viz.
+---
+
+<div class="viz-controls">
+	<slot />
+</div>
+
+<style>
+	.viz-controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1.4em 2em;
+		align-items: center;
+		padding: 0.8em 0 0;
+		border-top: 1px solid var(--border);
+		margin-top: 1em;
+		font-family: var(--font-sans);
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	.viz-controls :global(label) {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35em;
+		min-width: 160px;
+	}
+	.viz-controls :global(label > span:first-child) {
+		font-size: 0.75rem;
+		letter-spacing: 0.04em;
+		color: var(--muted);
+		text-transform: uppercase;
+	}
+	.viz-controls :global(input[type="range"]) {
+		appearance: none;
+		-webkit-appearance: none;
+		width: 100%;
+		height: 4px;
+		background: var(--border-strong);
+		border-radius: 2px;
+		outline: none;
+	}
+	.viz-controls :global(input[type="range"]::-webkit-slider-thumb) {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--fg);
+		border: 2px solid var(--bg);
+		box-shadow: 0 0 0 1px var(--accent);
+		cursor: pointer;
+	}
+	.viz-controls :global(input[type="range"]::-moz-range-thumb) {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--fg);
+		border: 2px solid var(--bg);
+		box-shadow: 0 0 0 1px var(--accent);
+		cursor: pointer;
+	}
+	.viz-controls :global(input[type="range"]:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 4px;
+	}
+	.viz-controls :global(button.btn) {
+		font: inherit;
+		font-size: 0.82rem;
+		color: var(--fg);
+		background: transparent;
+		border: 1px solid var(--border-strong);
+		padding: 0.4em 0.9em;
+		border-radius: 4px;
+		transition: border-color 120ms ease, color 120ms ease;
+	}
+	.viz-controls :global(button.btn:hover) {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.viz-controls :global(.value) {
+		color: var(--fg);
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
+	}
+</style>
